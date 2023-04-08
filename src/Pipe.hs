@@ -1,4 +1,4 @@
-module Pipe (parser, AST (..), Value (..), LambdaAST (..)) where
+module Pipe (parser, Expr (..)) where
 
 import Data.Void ( Void )
 import Data.List (unwords, intercalate)
@@ -21,30 +21,18 @@ import qualified Text.Megaparsec.Char.Lexer as L
 
 type Parser = Parsec Void String
 
-data AST
-  = Value (Value LambdaAST)
-  | Expr [AST]
-  deriving Eq
-
-instance Show AST where
-  show t = case t of
-    Value x -> show x
-    Expr x -> '(' : unwords (map show x) ++ ")"
-
-data Value a
+data Expr
   = Int Integer
   | Float Double
   | String String
   | Bool Bool
   | Null
   | Symbol String
-  | Array [Value a]
-  | Lambda a
+  | Lambda [String] Expr
+  | Expr [Expr]
   deriving Eq
 
-data LambdaAST = LambdaAST [String] AST deriving (Show, Eq)
-
-instance Show a => Show (Value a) where
+instance Show Expr where
   show e = case e of
     Int x -> show x
     Float x -> show x
@@ -53,8 +41,8 @@ instance Show a => Show (Value a) where
     Bool False -> "false"
     Null -> "null"
     Symbol x -> x
-    Array x -> '[' : intercalate ", " (map show x) ++ "]"
-    Lambda x -> show x
+    Lambda args ex -> '\\' : unwords args ++ ". " ++ show ex
+    Expr x -> '(' : unwords (map show x) ++ ")"
 
 sc :: Parser ()
 sc = L.space
@@ -105,8 +93,8 @@ identifier = try $ lexeme $ do
 parens :: Parser a -> Parser a
 parens = lexeme . between (symbol "(") (symbol ")")
 
-literal :: Parser AST
-literal = Value <$> choice
+literal :: Parser Expr
+literal = choice
   [ try $ fmap Float float
   , fmap Int integer
   , fmap String stringLiteral
@@ -116,51 +104,49 @@ literal = Value <$> choice
   , String <$> fmap pure charLiteral
   ]
 
-exprList :: Parser AST
+exprList :: Parser Expr
 exprList = do
-  f <- fmap (Value . Symbol) identifier <|> parens expr
+  f <- fmap Symbol identifier <|> parens expr
   args <- many $ do
-    literal <|> fmap (Value . Symbol) identifier <|> parens expr
+    literal <|> fmap Symbol identifier <|> parens expr
   return $ case args of
     [] -> f
-    _ -> Expr (f : args)
+    x -> Expr (f:x)
 
-ifValue :: Parser AST
-ifValue = try $ do
+ifExpr :: Parser Expr
+ifExpr = try $ do
   symbol "if"
   cond <- expr
   symbol "then"
   true <- expr
   symbol "else"
   false <- expr
-  return $ Expr [Value $ Symbol "if", cond, true, false]
+  return $ Expr [Symbol "if", cond, true, false]
 
-lambda :: Parser AST
-lambda = (\x y -> Expr [Value $ Symbol "lambda", Value $ Array $ fmap Symbol x, y])
-  <$> lexeme (between (symbol "\\") (symbol ".") $ some identifier)
-  <*> expr
+lambda :: Parser Expr
+lambda = Lambda <$> lexeme (between (symbol "\\") (symbol ".") $ some identifier) <*> expr
 
-term :: Parser AST
+term :: Parser Expr
 term = choice
   [ lambda
-  , ifValue
+  , ifExpr
   , literal
   , exprList
   ]
 
-binary' :: String -> String -> Operator Parser AST
-binary' name fname = InfixL ((\x y -> Expr [Value $ Symbol fname, x, y]) <$ symbol name)
+binary' :: String -> String -> Operator Parser Expr
+binary' name fname = InfixL ((\x y -> Expr [Symbol fname, x, y]) <$ symbol name)
 
-binary :: String -> Operator Parser AST
+binary :: String -> Operator Parser Expr
 binary name = binary' name name
 
-prefix' :: String -> String -> Operator Parser AST
-prefix'  name fname = Prefix  ((\x -> Expr [Value $ Symbol fname, x]) <$ symbol name)
+prefix' :: String -> String -> Operator Parser Expr
+prefix'  name fname = Prefix  ((\x -> Expr [Symbol fname, x]) <$ symbol name)
 
-prefix :: String -> Operator Parser AST
+prefix :: String -> Operator Parser Expr
 prefix name = prefix' name name
   
-expr :: Parser AST
+expr :: Parser Expr
 expr = makeExprParser term operatorTable
   where
     operatorTable =
@@ -175,5 +161,5 @@ expr = makeExprParser term operatorTable
         ]
       ]
 
-parser :: Parser AST
+parser :: Parser Expr
 parser = expr <* eof
