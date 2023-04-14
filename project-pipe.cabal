@@ -20,12 +20,14 @@ category:           Data
 
 library
     exposed-modules:  Pipe, Interpreter
-
     -- Modules included in this library but not exported.
     -- other-modules:
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
+    default-extensions:
+        OverloadedStrings,
+        OverloadedLists
     build-depends:
         base ^>=4.16.4.0,
         megaparsec ^>=9.3.0,
@@ -57,12 +59,17 @@ test-suite pipe-test
     type:             exitcode-stdio-1.0
     hs-source-dirs:   test
     main-is:          PipeTest.hs
+    default-extensions:
+        OverloadedStrings,
+        OverloadedLists
     build-depends:
         base ^>=4.16.4.0,
         project-pipe,
         hspec ^>=2.10.10,
         QuickCheck ^>=2.14.2,
         megaparsec ^>=9.3.0,
-        hspec-megaparsec ^>=2.2.0
+        hspec-megaparsec ^>=2.2.0,
+        vector ^>= 0.13.0.0,
+        text ^>= 2.0.2
 
 

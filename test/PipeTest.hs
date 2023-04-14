@@ -3,23 +3,26 @@ module Main (main) where
 import Pipe ( parser, AST(..) )
 import Interpreter ( Value(..), eval )
 import Data.Void ( Void )
+import Data.Text (Text)
+import qualified Data.Text as Text
+import Data.Vector (Vector)
 import qualified Text.Megaparsec as MP
 import Test.QuickCheck ( Testable(property) )
 import Test.Hspec ( hspec, describe, it, shouldBe )
 import Test.Hspec.Megaparsec ( shouldFailOn, shouldParse )
 
-parse :: String -> Either (MP.ParseErrorBundle String Void) AST
+parse :: Text -> Either (MP.ParseErrorBundle Text Void) AST
 parse = MP.parse parser ""
 
 main :: IO ()
 main = hspec $ do
   describe "parser" $ do
     it "parses integers" $
-      property $ \x -> parse (show x) `shouldParse` LitInt x
+      property $ \x -> parse (Text.pack $ show x) `shouldParse` LitInt x
     it "parses floats" $
-      property $ \x -> parse (show x) `shouldParse` LitFloat x
+      property $ \x -> parse (Text.pack $ show x) `shouldParse` LitFloat x
     it "parses strings" $
-      property $ \x -> parse (show x) `shouldParse` LitString x
+      property $ \x -> parse (Text.pack $ show x) `shouldParse` LitString (Text.pack x)
     it "parses booleans" $ do
       parse "true" `shouldParse` LitBool True
       parse "false" `shouldParse` LitBool False
@@ -50,4 +53,5 @@ main = hspec $ do
         (Expr [Symbol "+", Symbol "x", Symbol "y"])
   describe "interpreter" $ do
     it "run expressions" $
-      property $ \x y -> eval (Expr [Symbol "+", LitInt x, LitInt y]) `shouldBe` Right (Int (x + y))
+      property $ \x y -> let expr = Expr [Symbol "+", LitInt x, LitInt y]
+                         in eval expr `shouldBe` Right (Int (x + y))

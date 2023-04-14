@@ -1,11 +1,16 @@
 module Pipe (parser, AST (..)) where
 
+import Control.Applicative (Alternative)
 import Data.Void ( Void )
 import Data.List (unwords, intercalate)
+import Data.Vector (Vector)
+import qualified Data.Vector as Vec
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Map (Map)
 import qualified Data.Map as Map
+import Data.Text (Text)
+import qualified Data.Text as Text
 import Text.Megaparsec
     ( choice,
       many,
@@ -21,19 +26,19 @@ import Control.Monad.Combinators.Expr
     ( makeExprParser, Operator(Prefix, InfixL) )
 import qualified Text.Megaparsec.Char.Lexer as L
 
-type Parser = Parsec Void String
+type Parser = Parsec Void Text
 
 data AST
   = LitInt Integer
   | LitFloat Double
-  | LitString String
+  | LitString Text
   | LitBool Bool
   | LitNull
-  | Symbol String
-  | ArrayAST [AST]
-  | ObjectAST (Map String AST)
-  | LambdaAST [String] AST
-  | Expr [AST]
+  | Symbol Text
+  | ArrayAST (Vector AST)
+  | ObjectAST (Map Text AST)
+  | LambdaAST (Vector Text) AST
+  | Expr (Vector AST)
   deriving Eq
 
 instance Show AST where
@@ -44,12 +49,15 @@ instance Show AST where
     LitBool True -> "true"
     LitBool False -> "false"
     LitNull -> "null"
-    Symbol x -> x
-    ArrayAST x -> '[' : intercalate ", " (map show x) ++ "]"
-    ObjectAST x -> let pairs = map (\(x, y) -> x ++ " = " ++ show y) $ Map.toList x
+    Symbol x -> Text.unpack x
+    ArrayAST x -> '[' : intercalate ", " (map show $ Vec.toList x) ++ "]"
+    ObjectAST x -> let pairs = map (\(x, y) -> Text.unpack x ++ " = " ++ show y) $ Map.toList x
                    in '{' : intercalate ", " pairs ++ "}"
-    LambdaAST args ex -> '\\' : unwords args ++ ". " ++ show ex
-    Expr x -> '(' : unwords (map show x) ++ ")"
+    LambdaAST args ex -> '\\' : unwords (map Text.unpack $ Vec.toList args) ++ ". " ++ show ex
+    Expr x -> '(' : unwords (map show $ Vec.toList x) ++ ")"
+
+vecChoice :: Alternative m => Vector (m a) -> m a
+vecChoice = choice
 
 sc :: Parser ()
 sc = L.space
@@ -60,14 +68,14 @@ sc = L.space
 lexeme :: Parser a -> Parser a
 lexeme = L.lexeme sc
 
-symbol :: String -> Parser String
+symbol :: Text -> Parser Text
 symbol = L.symbol sc
 
 charLiteral :: Parser Char
 charLiteral = lexeme $ between (char '\'') (char '\'') L.charLiteral
 
-stringLiteral :: Parser String
-stringLiteral = lexeme $ char '\"' *> manyTill L.charLiteral (char '\"')
+stringLiteral :: Parser Text
+stringLiteral = Text.pack <$> lexeme (char '\"' *> manyTill L.charLiteral (char '\"'))
   
 integer :: Parser Integer
 integer = lexeme $ try (fmap negate $ char '-' >> L.decimal) <|> L.decimal
@@ -75,11 +83,11 @@ integer = lexeme $ try (fmap negate $ char '-' >> L.decimal) <|> L.decimal
 float :: Parser Double
 float = lexeme $ try (fmap negate $ char '-' >> L.float) <|> L.float
 
-keyword :: String -> Parser String
+keyword :: Text -> Parser Text
 keyword keyword = try $ lexeme (string keyword <* notFollowedBy alphaNumChar)
 
-keywords :: Set String
-keywords = Set.fromList
+keywords :: Set Text
+keywords =
   [ "then"
   , "else"
   , "or"
@@ -90,9 +98,9 @@ keywords = Set.fromList
   , "false"
   ]
 
-identifier :: Parser String
+identifier :: Parser Text
 identifier = try $ lexeme $ do
-  name <- (:) <$> letterChar <*> many (alphaNumChar <|> char '_')
+  name <- fmap Text.pack ((:) <$> letterChar <*> many (alphaNumChar <|> char '_'))
   if Set.member name keywords
     then fail "keyword"
     else return name
@@ -101,14 +109,14 @@ parens :: Parser a -> Parser a
 parens = lexeme . between (symbol "(") (symbol ")")
 
 literal :: Parser AST
-literal = choice
+literal = vecChoice
   [ try $ fmap LitFloat float
   , fmap LitInt integer
   , fmap LitString stringLiteral
   , LitNull <$ keyword "null"
   , LitBool True  <$ keyword "true"
   , LitBool False  <$ keyword "false"
-  , LitString <$> fmap pure charLiteral
+  , LitString <$> fmap Text.singleton charLiteral
   ]
 
 exprList :: Parser AST
@@ -118,7 +126,7 @@ exprList = do
     literal <|> fmap Symbol identifier <|> parens expr
   return $ case args of
     [] -> f
-    x -> Expr (f:x)
+    x -> Expr $ Vec.cons f $ Vec.fromList x
 
 ifExpr :: Parser AST
 ifExpr = try $ do
@@ -131,26 +139,28 @@ ifExpr = try $ do
   return $ Expr [Symbol "if", cond, true, false]
 
 lambda :: Parser AST
-lambda = LambdaAST <$> lexeme (between (symbol "\\") (symbol ".") $ some identifier) <*> expr
+lambda = LambdaAST
+  <$> fmap Vec.fromList (lexeme (between (symbol "\\") (symbol ".") $ some identifier))
+  <*> expr
 
 term :: Parser AST
-term = choice
+term = vecChoice
   [ lambda
   , ifExpr
   , literal
   , exprList
   ]
 
-binary' :: String -> String -> Operator Parser AST
+binary' :: Text -> Text -> Operator Parser AST
 binary' name fname = InfixL ((\x y -> Expr [Symbol fname, x, y]) <$ symbol name)
 
-binary :: String -> Operator Parser AST
+binary :: Text -> Operator Parser AST
 binary name = binary' name name
 
-prefix' :: String -> String -> Operator Parser AST
+prefix' :: Text -> Text -> Operator Parser AST
 prefix'  name fname = Prefix  ((\x -> Expr [Symbol fname, x]) <$ symbol name)
 
-prefix :: String -> Operator Parser AST
+prefix :: Text -> Operator Parser AST
 prefix name = prefix' name name
   
 expr :: Parser AST
