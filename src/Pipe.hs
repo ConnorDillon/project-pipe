@@ -3,6 +3,7 @@ module Pipe (parser, AST (..)) where
 import Control.Applicative (Alternative)
 import Data.Void ( Void )
 import Data.List (unwords, intercalate)
+import Data.Foldable (foldr')
 import Data.Vector (Vector)
 import qualified Data.Vector as Vec
 import Data.Set (Set)
@@ -19,7 +20,7 @@ import Text.Megaparsec
       (<|>),
       Parsec,
       MonadParsec(eof, notFollowedBy, try),
-      some )
+      some, sepBy, sepBy1 )
 import Text.Megaparsec.Char
     ( alphaNumChar, char, letterChar, space1, string )
 import Control.Monad.Combinators.Expr
@@ -38,6 +39,7 @@ data AST
   | ArrayAST (Vector AST)
   | ObjectAST (Map Text AST)
   | LambdaAST (Vector Text) AST
+  | Let (Vector (Text, Vector Text, AST)) AST
   | Expr (Vector AST)
   deriving Eq
 
@@ -51,10 +53,14 @@ instance Show AST where
     LitNull -> "null"
     Symbol x -> Text.unpack x
     ArrayAST x -> '[' : intercalate ", " (map show $ Vec.toList x) ++ "]"
-    ObjectAST x -> let pairs = map (\(x, y) -> Text.unpack x ++ " = " ++ show y) $ Map.toList x
-                   in '{' : intercalate ", " pairs ++ "}"
-    LambdaAST args ex -> '\\' : unwords (map Text.unpack $ Vec.toList args) ++ ". " ++ show ex
+    ObjectAST x -> '{' : intercalate ", " (pairs $ Map.toList x) ++ "}"
+    LambdaAST args ast -> '\\' : unwords (map Text.unpack $ Vec.toList args) ++ ". " ++ show ast
+    Let xs ast -> "let " ++ intercalate ", " (bindings $ Vec.toList xs) ++ "; " ++  show ast
     Expr x -> '(' : unwords (map show $ Vec.toList x) ++ ")"
+    where
+      pairs = map (\(x, y) -> Text.unpack x ++ " = " ++ show y)
+      bindings = map (\(x, y, z) -> Text.unpack x
+                       ++ unwords (Vec.toList $ fmap Text.unpack y) ++ " = " ++ show z)
 
 vecChoice :: Alternative m => Vector (m a) -> m a
 vecChoice = choice
@@ -92,7 +98,6 @@ keywords =
   , "else"
   , "or"
   , "and"
-  , "not"
   , "null"
   , "true"
   , "false"
@@ -105,8 +110,30 @@ identifier = try $ lexeme $ do
     then fail "keyword"
     else return name
 
+array :: Parser (Vector AST)
+array = lexeme $ fmap Vec.fromList $ between (symbol "[") (symbol "]") $ sepBy expr (symbol ",")
+
+object :: Parser (Map Text AST)
+object = fmap Map.fromList $ between (symbol "{") (symbol "}") $ sepBy pair (symbol ",")
+  where pair = do
+          name <- identifier
+          symbol "="
+          ex <- expr
+          return (name, ex)
+
+let' :: Parser AST
+let' = Let
+  <$> fmap Vec.fromList (between (symbol "let") (symbol ";") $ sepBy1 binding (symbol ","))
+  <*> pipeExpr
+  where binding = do
+          name <- identifier
+          params <- Vec.fromList <$> many identifier
+          symbol "="
+          ex <- expr
+          return (name, params, ex)
+  
 parens :: Parser a -> Parser a
-parens = lexeme . between (symbol "(") (symbol ")")
+parens = between (symbol "(") (symbol ")")
 
 literal :: Parser AST
 literal = vecChoice
@@ -121,9 +148,17 @@ literal = vecChoice
 
 exprList :: Parser AST
 exprList = do
-  f <- fmap Symbol identifier <|> parens expr
-  args <- many $ do
-    literal <|> fmap Symbol identifier <|> parens expr
+  f <- fmap Symbol identifier <|> parens pipeExpr
+  args <- many $ vecChoice
+    [ literal
+    , fmap Symbol identifier 
+    , fmap ArrayAST array
+    , fmap ObjectAST object
+    , lambda
+    , let'
+    , ifExpr
+    , parens pipeExpr
+    ]
   return $ case args of
     [] -> f
     x -> Expr $ Vec.cons f $ Vec.fromList x
@@ -140,13 +175,16 @@ ifExpr = try $ do
 
 lambda :: Parser AST
 lambda = LambdaAST
-  <$> fmap Vec.fromList (lexeme (between (symbol "\\") (symbol ".") $ some identifier))
+  <$> fmap Vec.fromList (between (symbol "\\") (symbol ".") $ some identifier)
   <*> expr
 
 term :: Parser AST
 term = vecChoice
   [ lambda
+  , let'
   , ifExpr
+  , fmap ArrayAST array
+  , fmap ObjectAST object
   , literal
   , exprList
   ]
@@ -173,10 +211,19 @@ expr = makeExprParser term operatorTable
       , [ binary "+"
         , binary "-"
         ]
-      , [ binary "or"
-        , binary "and"
+      , [ binary "=="
+        , binary "!="
+        , binary "<"
+        , binary "<="
+        , binary ">"
+        , binary ">="
         ]
+      , [ binary "and" ]
+      , [ binary "or" ]
       ]
 
+pipeExpr :: Parser AST
+pipeExpr = makeExprParser expr [[binary "|"]]
+
 parser :: Parser AST
-parser = expr <* eof
+parser = pipeExpr <* eof
