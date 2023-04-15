@@ -1,4 +1,4 @@
-module Pipe (parser, AST (..)) where
+module Parser (parser, AST (..)) where
 
 import Control.Applicative (Alternative)
 import Data.Void ( Void )

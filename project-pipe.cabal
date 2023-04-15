@@ -19,7 +19,7 @@ maintainer:         connor@cdillon.nl
 category:           Data
 
 library
-    exposed-modules:  Pipe, Interpreter
+    exposed-modules:  Parser, Interpreter
     -- Modules included in this library but not exported.
     -- other-modules:
 

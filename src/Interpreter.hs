@@ -1,6 +1,6 @@
 module Interpreter (eval, Value (..), Lambda (..)) where
 
-import Pipe (AST(..))
+import Parser (AST(..))
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Data.Map (Map)

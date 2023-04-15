@@ -1,6 +1,6 @@
 module Main (main) where
 
-import Pipe ( parser, AST(..) )
+import Parser ( parser, AST(..) )
 import Interpreter ( Value(..), eval )
 import Data.Void ( Void )
 import Data.Text (Text)
