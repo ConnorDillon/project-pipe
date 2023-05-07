@@ -21,8 +21,7 @@ category:           Data
 library
     exposed-modules:
         Parser,
-        Interpreter,
-        Input
+        Interpreter
     -- Modules included in this library but not exported.
     -- other-modules:
 
