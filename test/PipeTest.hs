@@ -1,20 +1,32 @@
 module Main (main) where
 
-import Parser ( parser, AST(..) )
-import Interpreter ( Value(..), eval )
-import Data.Void ( Void )
+import Data.Aeson (json)
+import Control.Applicative ((<|>))
+import System.IO.Streams.Attoparsec.ByteString (parserToInputStream)
+import Data.Attoparsec.ByteString (endOfInput)
+import Parser ( parse, parser, AST(..) )
+import Interpreter ( Value(..), run, eval, jsonInput )
+import qualified ListT as L
+import Control.Monad.Except (runExceptT, ExceptT)
+import Data.ByteString (ByteString)
+import Data.Void (Void)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Data.Vector (Vector)
+import qualified Data.Vector as Vec
+import qualified Data.Map.Strict as Map
 import qualified Text.Megaparsec as MP
 import Test.QuickCheck ( Testable(property) )
 import Test.Hspec ( hspec, describe, it, shouldBe )
 import Test.Hspec.Megaparsec ( shouldFailOn, shouldParse )
+import qualified System.IO.Streams as Streams
 
-parse :: Text -> Either (MP.ParseErrorBundle Text Void) AST
-parse = MP.parse parser ""
-
-shouldEval x y = fmap eval (parse x) `shouldParse` Right y
+shouldEval :: Text -> Value (ExceptT Text IO) -> IO ()
+shouldEval x y = do
+  result <- case parse x of
+    Left err -> return $ Left $ Text.pack $ show err
+    Right ast -> runExceptT $ eval ast
+  result `shouldBe` Right y
 
 main :: IO ()
 main = hspec $ do
@@ -95,11 +107,9 @@ main = hspec $ do
         , ("bar", [], ArrayAST [Symbol "foo"])
         ]
         (Expr [Symbol "*", Symbol "bar", LitInt 2])
+
   describe "interpreter" $ do
-    it "run expressions" $
-      property $ \x y -> let expr = Expr [Symbol "+", LitInt x, LitInt y]
-                         in eval expr `shouldBe` Right (Int (x + y))
-    it "run pipe expressions" $ do
+    it "runs pipe expressions" $ do
       "map (\\x. x + 1) (filter (\\x. x < 3) [1, 2, 3])"
         `shouldEval` Array [Int 2, Int 3]
       "[1, 2, 3] | filter \\x. x < 3 | map \\x. x + 1"
@@ -110,9 +120,27 @@ main = hspec $ do
         `shouldEval` Array [Int 2, Int 3]
       "let bar x = x + 1; [1, 2, 3] | (let foo x = x < 3; filter foo) | map bar"
         `shouldEval` Array [Int 2, Int 3]
-    it "run let statements" $ do
+      "[[1, 2, 7], [3, 4], 5, [6, 8]] | flatten | map \\x. x + 1 | filter \\x. x < 8 | array"
+        `shouldEval` Array [Int 2, Int 3, Int 4, Int 5, Int 6, Int 7]
+    it "runs let statements" $ do
       "let foo = 1, bar = foo; bar + 1" `shouldEval` Int 2
       "2 * let foo = 1; foo + 3" `shouldEval` Int (2 * let foo = 1 in foo + 3)
       "let foo = 1, bar = let baz = foo; baz; bar + 1" `shouldEval` Int 2
       "negate (let foo = 1; foo)" `shouldEval` Int (-1)
       "let foo x = 1 + x, bar = foo 2; foo bar" `shouldEval` Int 4
+
+  describe "e2e" $ do
+    it "parses json" $ do
+      s <- jsonInput <$> Streams.fromByteString "{\"foo\": \"bar\"} 123 null"
+      o <- L.head s
+      o `shouldBe` Just (Object $ Map.fromList [("foo", String "bar")]) 
+      i <- L.head s
+      i `shouldBe` Just (Int 123) 
+      n <- L.head s
+      n `shouldBe` Just Null 
+    it "runs e2e" $ do
+      i <- Streams.fromByteString "[1, 2, 3] [4, 5]"
+      let Right ast = parse "map (map \\x.x+1)"
+      Right x <- runExceptT $ eval ast
+      v <- (Streams.outputToVector $ \o -> runExceptT $ run i o x) :: IO (Vector ByteString)
+      v `shouldBe` ["[2,3,4]", "\n", "[5,6]", "\n"]

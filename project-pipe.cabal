@@ -19,7 +19,10 @@ maintainer:         connor@cdillon.nl
 category:           Data
 
 library
-    exposed-modules:  Parser, Interpreter
+    exposed-modules:
+        Parser,
+        Interpreter,
+        Input
     -- Modules included in this library but not exported.
     -- other-modules:
 
@@ -27,7 +30,11 @@ library
     -- other-extensions:
     default-extensions:
         OverloadedStrings,
-        OverloadedLists
+        OverloadedLists,
+        DeriveFunctor,
+        DeriveFoldable,
+        DeriveTraversable,
+        FlexibleContexts
     build-depends:
         base ^>=4.16.4.0,
         megaparsec ^>=9.3.0,
@@ -35,13 +42,19 @@ library
         containers ^>=0.6.7,
         vector ^>= 0.13.0.0,
         text ^>= 2.0.2,
-        mtl ^>= 2.3.1
+        mtl ^>= 2.3.1,
+        aeson ^>= 2.1.2.1,
+        scientific ^>= 0.3.7.0,
+        io-streams ^>= 1.5.2.2,
+        bytestring ^>= 0.11.4.0,
+        list-t ^>= 1.0.5.6,
+        transformers ^>= 0.5.6.2,
+        attoparsec ^>= 0.14.4
     hs-source-dirs:   src
     default-language: Haskell2010
 
 executable pipe
     main-is:          Main.hs
-
     -- Modules included in this executable, other than Main.
     -- other-modules:
 
@@ -49,7 +62,10 @@ executable pipe
     -- other-extensions:
     build-depends:
         base ^>=4.16.4.0,
-        project-pipe
+        project-pipe,
+        text ^>= 2.0.2,
+        mtl ^>= 2.3.1,
+        io-streams ^>= 1.5.2.2
 
     hs-source-dirs:   app
     default-language: Haskell2010
@@ -70,6 +86,11 @@ test-suite pipe-test
         megaparsec ^>=9.3.0,
         hspec-megaparsec ^>=2.2.0,
         vector ^>= 0.13.0.0,
-        text ^>= 2.0.2
-
-
+        text ^>= 2.0.2,
+        bytestring ^>= 0.11.4.0,
+        io-streams ^>= 1.5.2.2,
+        containers ^>=0.6.7,
+        mtl ^>= 2.3.1,
+        aeson ^>= 2.1.2.1,
+        attoparsec ^>= 0.14.4,
+        list-t ^>= 1.0.5.6

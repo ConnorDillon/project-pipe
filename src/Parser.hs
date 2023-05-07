@@ -1,4 +1,4 @@
-module Parser (parser, AST (..)) where
+module Parser (parse, parser, AST (..)) where
 
 import Control.Applicative (Alternative)
 import Data.Void ( Void )
@@ -25,6 +25,7 @@ import Text.Megaparsec.Char
     ( alphaNumChar, char, letterChar, space1, string )
 import Control.Monad.Combinators.Expr
     ( makeExprParser, Operator(Prefix, InfixL) )
+import qualified Text.Megaparsec as MP
 import qualified Text.Megaparsec.Char.Lexer as L
 
 type Parser = Parsec Void Text
@@ -227,3 +228,6 @@ pipeExpr = makeExprParser expr [[binary "|"]]
 
 parser :: Parser AST
 parser = pipeExpr <* eof
+
+parse :: Text -> Either (MP.ParseErrorBundle Text Void) AST
+parse = MP.parse parser ""
